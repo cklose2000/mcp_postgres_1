@@ -206,5 +206,114 @@ export async function executeInsert(
   }
 }
 
+/**
+ * Executes an UPDATE operation using Supabase
+ * Provides a safer, structured way to update data compared to raw SQL
+ */
+export async function executeUpdate(
+  table: string, 
+  values: Record<string, any>,
+  filter: Record<string, any>,
+  returning: string = '*'
+): Promise<{ data: any; error: any }> {
+  // Determine if we should use the service role key based on configuration
+  const useServiceRole = shouldUseServiceKey('UPDATE');
+  
+  // Get the appropriate client
+  const supabase = useServiceRole 
+    ? getSupabaseServiceClient() 
+    : getSupabaseClient();
+  
+  try {
+    // Using Supabase's built-in update method which is safer than raw SQL
+    let query = supabase
+      .from(table)
+      .update(values);
+    
+    // Apply all filter conditions
+    for (const [key, value] of Object.entries(filter)) {
+      query = query.eq(key, value);
+    }
+    
+    // Add returning clause
+    const { data, error } = await query.select(returning);
+    
+    if (error) {
+      console.warn('Update operation failed:', error);
+      return { data: null, error };
+    }
+    
+    return { data, error: null };
+  } catch (error) {
+    console.error('Update operation exception:', error);
+    return {
+      data: null,
+      error: {
+        message: `Failed to update records in ${table}`,
+        details: error
+      }
+    };
+  }
+}
+
+/**
+ * Executes a DELETE operation using Supabase
+ * Provides a safer, structured way to delete data compared to raw SQL
+ */
+export async function executeDelete(
+  table: string, 
+  filter: Record<string, any>,
+  returning: string = '*'
+): Promise<{ data: any; error: any }> {
+  // Determine if we should use the service role key based on configuration
+  const useServiceRole = shouldUseServiceKey('DELETE');
+  
+  // Get the appropriate client
+  const supabase = useServiceRole 
+    ? getSupabaseServiceClient() 
+    : getSupabaseClient();
+  
+  try {
+    // Safety check - prevent deleting all records accidentally
+    if (Object.keys(filter).length === 0) {
+      return {
+        data: null,
+        error: {
+          message: 'Delete operations require a filter to prevent accidental deletion of all records'
+        }
+      };
+    }
+    
+    // Using Supabase's built-in delete method which is safer than raw SQL
+    let query = supabase
+      .from(table)
+      .delete();
+    
+    // Apply all filter conditions
+    for (const [key, value] of Object.entries(filter)) {
+      query = query.eq(key, value);
+    }
+    
+    // Add returning clause
+    const { data, error } = await query.select(returning);
+    
+    if (error) {
+      console.warn('Delete operation failed:', error);
+      return { data: null, error };
+    }
+    
+    return { data, error: null };
+  } catch (error) {
+    console.error('Delete operation exception:', error);
+    return {
+      data: null,
+      error: {
+        message: `Failed to delete records from ${table}`,
+        details: error
+      }
+    };
+  }
+}
+
 // Export a singleton instance of the Supabase client
 export const supabase = getSupabaseClient(); 

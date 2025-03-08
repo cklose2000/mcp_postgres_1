@@ -72,11 +72,95 @@ You can read data using the `query` tool:
 
 ### 3. Update Operations
 
-_Coming soon_
+You can update records using the `updateRecord` tool:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "callTool",
+  "params": {
+    "name": "updateRecord",
+    "arguments": {
+      "table": "users",
+      "values": {
+        "name": "Updated Name",
+        "email": "updated@example.com"
+      },
+      "filter": {
+        "id": 1
+      },
+      "returning": "*"  // Optional, defaults to "*"
+    }
+  }
+}
+```
 
 ### 4. Delete Operations
 
-_Coming soon_
+You can delete records using the `deleteRecord` tool:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "callTool",
+  "params": {
+    "name": "deleteRecord",
+    "arguments": {
+      "table": "users",
+      "filter": {
+        "id": 1
+      },
+      "returning": "*"  // Optional, defaults to "*"
+    }
+  }
+}
+```
+
+### 5. Batch Operations
+
+You can execute multiple operations in a single request using the `batchOperations` tool:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "callTool",
+  "params": {
+    "name": "batchOperations",
+    "arguments": {
+      "operations": [
+        {
+          "type": "insert",
+          "table": "users",
+          "values": {
+            "name": "New User",
+            "email": "new@example.com"
+          }
+        },
+        {
+          "type": "update",
+          "table": "users",
+          "values": {
+            "status": "active"
+          },
+          "filter": {
+            "id": 2
+          }
+        },
+        {
+          "type": "delete",
+          "table": "users",
+          "filter": {
+            "status": "inactive"
+          }
+        }
+      ]
+    }
+  }
+}
+```
 
 ## Error Handling
 
@@ -135,6 +219,8 @@ For security reasons, it's recommended to keep these set to `false` in productio
 - Values are passed as parameters to prevent SQL injection
 - Operations use environment-based permissions to control access
 - Service key operations provide elevated privileges and should be carefully managed
+- Delete operations require filters to prevent accidental deletion of all records
+- Batch operations validate each individual operation before execution
 
 ## Testing
 

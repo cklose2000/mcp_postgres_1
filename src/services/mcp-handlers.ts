@@ -162,6 +162,95 @@ async function handleListTools() {
           },
           required: ["table", "values"]
         },
+      },
+      {
+        name: "updateRecord",
+        description: "Update existing records in a table",
+        inputSchema: {
+          type: "object",
+          properties: {
+            table: { 
+              type: "string",
+              description: "The name of the table to update"
+            },
+            values: {
+              type: "object",
+              description: "Key-value pairs of column names and values to update"
+            },
+            filter: {
+              type: "object",
+              description: "Key-value pairs to filter which records to update"
+            },
+            returning: {
+              type: "string",
+              description: "Columns to return after update (default: '*')"
+            }
+          },
+          required: ["table", "values", "filter"]
+        },
+      },
+      {
+        name: "deleteRecord",
+        description: "Delete records from a table",
+        inputSchema: {
+          type: "object",
+          properties: {
+            table: { 
+              type: "string",
+              description: "The name of the table to delete from"
+            },
+            filter: {
+              type: "object",
+              description: "Key-value pairs to filter which records to delete"
+            },
+            returning: {
+              type: "string",
+              description: "Columns to return from deleted records (default: '*')"
+            }
+          },
+          required: ["table", "filter"]
+        },
+      },
+      {
+        name: "batchOperations",
+        description: "Execute multiple operations in a single request",
+        inputSchema: {
+          type: "object",
+          properties: {
+            operations: {
+              type: "array",
+              description: "Array of operations to execute",
+              items: {
+                type: "object",
+                properties: {
+                  type: {
+                    type: "string",
+                    description: "Operation type: insert, update, delete",
+                    enum: ["insert", "update", "delete"]
+                  },
+                  table: {
+                    type: "string",
+                    description: "Table name for the operation"
+                  },
+                  values: {
+                    type: "object",
+                    description: "Values for insert/update operations"
+                  },
+                  filter: {
+                    type: "object",
+                    description: "Filter criteria for update/delete operations"
+                  },
+                  returning: {
+                    type: "string",
+                    description: "Columns to return (default: '*')"
+                  }
+                },
+                required: ["type", "table"]
+              }
+            }
+          },
+          required: ["operations"]
+        }
       }
     ],
   };
@@ -311,6 +400,262 @@ async function handleCallTool(request: any) {
           }, null, 2) 
         }],
         isError: false,
+      };
+    } catch (error: any) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({ 
+            error: true, 
+            message: error.message || String(error)
+          }, null, 2) 
+        }],
+        isError: true,
+      };
+    }
+  } else if (request.params.name === "updateRecord") {
+    try {
+      const { table, values, filter, returning = '*' } = request.params.arguments;
+      
+      // Validate input
+      if (!table) {
+        throw new Error('Table name is required');
+      }
+      
+      if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
+        throw new Error('Values object is required and must contain at least one key-value pair');
+      }
+      
+      if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
+        throw new Error('Filter object is required and must contain at least one key-value pair');
+      }
+      
+      // Sanitize table name to prevent SQL injection
+      const sanitizedTable = table.replace(/[^a-zA-Z0-9_]/g, '');
+      
+      // If the sanitized table name doesn't match the input, it was potentially malicious
+      if (sanitizedTable !== table) {
+        throw new Error('Invalid table name. Table names can only contain alphanumeric characters and underscores.');
+      }
+      
+      // Execute the update operation
+      const { data, error } = await supabaseService.executeUpdate(sanitizedTable, values, filter, returning);
+      
+      if (error) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              error: true, 
+              message: error.message,
+              details: error.details 
+            }, null, 2) 
+          }],
+          isError: true,
+        };
+      }
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({
+            success: true,
+            message: `Record(s) in ${table} updated successfully`,
+            affected_count: Array.isArray(data) ? data.length : 0,
+            data: data
+          }, null, 2) 
+        }],
+        isError: false,
+      };
+    } catch (error: any) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({ 
+            error: true, 
+            message: error.message || String(error)
+          }, null, 2) 
+        }],
+        isError: true,
+      };
+    }
+  } else if (request.params.name === "deleteRecord") {
+    try {
+      const { table, filter, returning = '*' } = request.params.arguments;
+      
+      // Validate input
+      if (!table) {
+        throw new Error('Table name is required');
+      }
+      
+      if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
+        throw new Error('Filter object is required and must contain at least one key-value pair');
+      }
+      
+      // Sanitize table name to prevent SQL injection
+      const sanitizedTable = table.replace(/[^a-zA-Z0-9_]/g, '');
+      
+      // If the sanitized table name doesn't match the input, it was potentially malicious
+      if (sanitizedTable !== table) {
+        throw new Error('Invalid table name. Table names can only contain alphanumeric characters and underscores.');
+      }
+
+      // If no filter is provided or an empty filter, prevent deleting all records as a safety measure
+      if (Object.keys(filter).length === 0) {
+        throw new Error('Delete operations require a filter to prevent accidental deletion of all records');
+      }
+      
+      // Execute the delete operation
+      const { data, error } = await supabaseService.executeDelete(sanitizedTable, filter, returning);
+      
+      if (error) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              error: true, 
+              message: error.message,
+              details: error.details 
+            }, null, 2) 
+          }],
+          isError: true,
+        };
+      }
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({
+            success: true,
+            message: `Record(s) in ${table} deleted successfully`,
+            affected_count: Array.isArray(data) ? data.length : 0,
+            data: data
+          }, null, 2) 
+        }],
+        isError: false,
+      };
+    } catch (error: any) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({ 
+            error: true, 
+            message: error.message || String(error)
+          }, null, 2) 
+        }],
+        isError: true,
+      };
+    }
+  } else if (request.params.name === "batchOperations") {
+    try {
+      const { operations } = request.params.arguments;
+      
+      // Validate input
+      if (!operations || !Array.isArray(operations) || operations.length === 0) {
+        throw new Error('Operations array is required and must contain at least one operation');
+      }
+      
+      const results = [];
+      const errors = [];
+      
+      // Process each operation
+      for (let i = 0; i < operations.length; i++) {
+        const operation = operations[i];
+        const { type, table, values, filter, returning = '*' } = operation;
+        
+        // Validate operation
+        if (!type) {
+          errors.push({ index: i, error: 'Operation type is required' });
+          continue;
+        }
+        
+        if (!table) {
+          errors.push({ index: i, error: 'Table name is required' });
+          continue;
+        }
+        
+        // Sanitize table name
+        const sanitizedTable = table.replace(/[^a-zA-Z0-9_]/g, '');
+        if (sanitizedTable !== table) {
+          errors.push({ index: i, error: 'Invalid table name. Table names can only contain alphanumeric characters and underscores.' });
+          continue;
+        }
+        
+        try {
+          let result;
+          
+          // Execute the appropriate operation type
+          switch (type.toLowerCase()) {
+            case 'insert':
+              if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
+                errors.push({ index: i, error: 'Values object is required for insert operations' });
+                continue;
+              }
+              
+              result = await supabaseService.executeInsert(sanitizedTable, values, returning);
+              break;
+              
+            case 'update':
+              if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
+                errors.push({ index: i, error: 'Values object is required for update operations' });
+                continue;
+              }
+              
+              if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
+                errors.push({ index: i, error: 'Filter object is required for update operations' });
+                continue;
+              }
+              
+              result = await supabaseService.executeUpdate(sanitizedTable, values, filter, returning);
+              break;
+              
+            case 'delete':
+              if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
+                errors.push({ index: i, error: 'Filter object is required for delete operations' });
+                continue;
+              }
+              
+              result = await supabaseService.executeDelete(sanitizedTable, filter, returning);
+              break;
+              
+            default:
+              errors.push({ index: i, error: `Unknown operation type: ${type}` });
+              continue;
+          }
+          
+          // Add the result to the results array
+          results.push({
+            index: i,
+            type,
+            table,
+            success: !result.error,
+            data: result.data,
+            error: result.error
+          });
+          
+        } catch (error: any) {
+          // Add the error to the errors array
+          errors.push({
+            index: i,
+            type,
+            table,
+            error: error.message || String(error)
+          });
+        }
+      }
+      
+      // Return the results of all operations
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({
+            success: errors.length === 0,
+            message: `Processed ${operations.length} operations with ${errors.length} errors`,
+            results,
+            errors
+          }, null, 2) 
+        }],
+        isError: errors.length > 0,
       };
     } catch (error: any) {
       return {
