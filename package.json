@@ -1,0 +1,49 @@
+{
+  "name": "postgres-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for Supabase PostgreSQL",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "bin": {
+    "postgres-mcp-server": "dist/src/index.js"
+  },
+  "files": [
+    "dist",
+    "config/.env.sample",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc -p build.tsconfig.json",
+    "start": "node dist/src/index.js",
+    "dev": "tsc -p build.tsconfig.json --watch & node --watch dist/src/index.js",
+    "test:db": "node dist/tests/db-test.js",
+    "test:mcp": "node dist/tests/mcp-test.js",
+    "test": "tsc -p test.tsconfig.json && npm run test:db && npm run test:mcp",
+    "prepare-env": "cp config/.env.sample .env"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.0.1",
+    "@supabase/supabase-js": "^2.39.3",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pg": "^8.11.10",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "cursor",
+    "postgres",
+    "supabase",
+    "database"
+  ]
+} 
