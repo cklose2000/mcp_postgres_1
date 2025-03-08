@@ -11,6 +11,7 @@ export interface EnvironmentVariables {
   // Supabase configuration
   SUPABASE_PROJECT_URL: string;
   SUPABASE_API_KEY: string;
+  SUPABASE_SERVICE_KEY: string;
   
   // Database configuration
   DB_PASSWORD: string;
@@ -18,8 +19,13 @@ export interface EnvironmentVariables {
   // Environment selection
   ACTIVE_ENV: 'dev' | 'test' | 'prod';
   
+  // CRUD operations permissions
+  ALLOW_CREATE_OPERATIONS: boolean;
+  ALLOW_UPDATE_OPERATIONS: boolean;
+  ALLOW_DELETE_OPERATIONS: boolean;
+  
   // Other variables will be included in the raw object
-  [key: string]: string;
+  [key: string]: string | boolean;
 }
 
 /**
@@ -78,7 +84,7 @@ export function loadEnvVars(): EnvironmentVariables {
     if (trimmedLine && !trimmedLine.startsWith('#')) {
       const [key, ...valueParts] = trimmedLine.split('=');
       const value = valueParts.join('='); // Handle values that might contain '='
-      if (key && value) {
+      if (key && value !== undefined) {
         envVars[key.trim()] = value.trim();
       }
     }
@@ -87,10 +93,27 @@ export function loadEnvVars(): EnvironmentVariables {
   return {
     SUPABASE_PROJECT_URL: envVars.SUPABASE_PROJECT_URL || '',
     SUPABASE_API_KEY: envVars.SUPABASE_API_KEY || '',
+    SUPABASE_SERVICE_KEY: envVars.SUPABASE_SERVICE_KEY || '',
     DB_PASSWORD: envVars.DB_PASSWORD || '',
     ACTIVE_ENV: (envVars.ACTIVE_ENV as 'dev' | 'test' | 'prod') || 'dev',
+    
+    // Parse boolean values for CRUD operation permissions
+    ALLOW_CREATE_OPERATIONS: parseBoolean(envVars.ALLOW_CREATE_OPERATIONS, false),
+    ALLOW_UPDATE_OPERATIONS: parseBoolean(envVars.ALLOW_UPDATE_OPERATIONS, false),
+    ALLOW_DELETE_OPERATIONS: parseBoolean(envVars.ALLOW_DELETE_OPERATIONS, false),
+    
     ...envVars
   };
+}
+
+/**
+ * Helper function to parse boolean environment variables
+ */
+function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  return ['true', '1', 'yes'].includes(value.toLowerCase());
 }
 
 /**
@@ -100,9 +123,36 @@ function getDefaultEnvVars(): EnvironmentVariables {
   return {
     SUPABASE_PROJECT_URL: '',
     SUPABASE_API_KEY: '',
+    SUPABASE_SERVICE_KEY: '',
     DB_PASSWORD: '',
-    ACTIVE_ENV: 'dev'
+    ACTIVE_ENV: 'dev',
+    ALLOW_CREATE_OPERATIONS: false,
+    ALLOW_UPDATE_OPERATIONS: false,
+    ALLOW_DELETE_OPERATIONS: false
   };
+}
+
+/**
+ * Determines if the service key should be used for a specific operation type
+ * @param operationType The SQL operation type (CREATE, INSERT, UPDATE, DELETE, etc.)
+ * @returns True if the service key should be used, false otherwise
+ */
+export function shouldUseServiceKey(operationType: string): boolean {
+  const type = operationType.toUpperCase();
+  
+  if (type.startsWith('CREATE') && !env.ALLOW_CREATE_OPERATIONS) {
+    return true;
+  }
+  
+  if ((type.startsWith('UPDATE') || type.startsWith('ALTER')) && !env.ALLOW_UPDATE_OPERATIONS) {
+    return true;
+  }
+  
+  if (type.startsWith('DELETE') && !env.ALLOW_DELETE_OPERATIONS) {
+    return true;
+  }
+  
+  return false;
 }
 
 /**

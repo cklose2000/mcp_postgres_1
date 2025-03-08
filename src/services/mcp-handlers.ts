@@ -141,12 +141,34 @@ async function handleListTools() {
           },
         },
       },
+      {
+        name: "insertRecord",
+        description: "Insert a new record into a table",
+        inputSchema: {
+          type: "object",
+          properties: {
+            table: { 
+              type: "string",
+              description: "The name of the table to insert into"
+            },
+            values: {
+              type: "object",
+              description: "Key-value pairs of column names and values"
+            },
+            returning: {
+              type: "string",
+              description: "Columns to return after insert (default: '*')"
+            }
+          },
+          required: ["table", "values"]
+        },
+      }
     ],
   };
 }
 
 /**
- * Handler for executing tools (SQL queries)
+ * Handler for executing tools (SQL queries and more)
  */
 async function handleCallTool(request: any) {
   const sql = request.params.arguments?.sql as string;
@@ -212,6 +234,79 @@ async function handleCallTool(request: any) {
           text: JSON.stringify({
             success: true,
             message: "Table created successfully",
+            data: data
+          }, null, 2) 
+        }],
+        isError: false,
+      };
+    } catch (error: any) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({ 
+            error: true, 
+            message: error.message || String(error)
+          }, null, 2) 
+        }],
+        isError: true,
+      };
+    }
+  } else if (request.params.name === "insertRecord") {
+    try {
+      const { table, values, returning = '*' } = request.params.arguments;
+      
+      // Validate input
+      if (!table) {
+        throw new Error('Table name is required');
+      }
+      
+      if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
+        throw new Error('Values object is required and must contain at least one key-value pair');
+      }
+      
+      // Sanitize table name to prevent SQL injection
+      const sanitizedTable = table.replace(/[^a-zA-Z0-9_]/g, '');
+      
+      // If the sanitized table name doesn't match the input, it was potentially malicious
+      if (sanitizedTable !== table) {
+        throw new Error('Invalid table name. Table names can only contain alphanumeric characters and underscores.');
+      }
+      
+      // Construct the column and value portions of the INSERT statement
+      const columns = Object.keys(values);
+      const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
+      const valueArray = Object.values(values);
+      
+      // Construct a parameterized INSERT statement
+      const insertSql = `
+        INSERT INTO ${sanitizedTable} (${columns.join(', ')})
+        VALUES (${placeholders})
+        RETURNING ${returning}
+      `;
+      
+      // Execute the query
+      const { data, error } = await supabaseService.executeInsert(sanitizedTable, values, returning);
+      
+      if (error) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              error: true, 
+              message: error.message,
+              details: error.details 
+            }, null, 2) 
+          }],
+          isError: true,
+        };
+      }
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({
+            success: true,
+            message: `Record inserted into ${table} successfully`,
             data: data
           }, null, 2) 
         }],

@@ -2,13 +2,14 @@
  * Supabase service - Handles all interactions with Supabase
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { env } from '../config/env.js';
+import { env, shouldUseServiceKey } from '../config/env.js';
 
-// Cache the Supabase client to avoid creating multiple instances
+// Cache the Supabase client instances
 let supabaseClient: SupabaseClient | null = null;
+let supabaseServiceClient: SupabaseClient | null = null;
 
 /**
- * Returns a Supabase client instance
+ * Returns a Supabase client instance with standard permissions
  * Uses a cached instance if already created
  */
 export function getSupabaseClient(): SupabaseClient {
@@ -21,6 +22,22 @@ export function getSupabaseClient(): SupabaseClient {
   }
   
   return supabaseClient;
+}
+
+/**
+ * Returns a Supabase client instance with elevated service role permissions
+ * Uses a cached instance if already created
+ */
+export function getSupabaseServiceClient(): SupabaseClient {
+  if (!supabaseServiceClient) {
+    if (!env.SUPABASE_PROJECT_URL || !env.SUPABASE_SERVICE_KEY) {
+      throw new Error('Missing Supabase service key configuration. Please check your .env file.');
+    }
+    
+    supabaseServiceClient = createClient(env.SUPABASE_PROJECT_URL, env.SUPABASE_SERVICE_KEY);
+  }
+  
+  return supabaseServiceClient;
 }
 
 /**
@@ -60,49 +77,38 @@ export async function executeSqlQuery(sql: string): Promise<{ data: any; error: 
 
 /**
  * Executes a write SQL query (CREATE, INSERT, UPDATE, DELETE)
- * Uses a different RPC function that has write permissions
+ * Uses the appropriate client based on the operation type and environment settings
  */
 export async function executeWriteSqlQuery(sql: string): Promise<{ data: any; error: any }> {
-  const supabase = getSupabaseClient();
+  // Extract the operation type to determine which client to use
+  const operationType = sql.trim().split(' ')[0].toUpperCase();
+  const useServiceRole = shouldUseServiceKey(operationType);
+  
+  // Get the appropriate client based on permissions
+  const supabase = useServiceRole 
+    ? getSupabaseServiceClient() 
+    : getSupabaseClient();
   
   try {
-    // Try to use the sqlwrite RPC function if it exists
-    // Note: This function needs to be created in your Supabase project with appropriate permissions
+    // Log which client we're using (for debugging)
+    console.debug(`Executing ${operationType} operation with ${useServiceRole ? 'service' : 'standard'} client`);
+    
+    // Try to use the sqlwrite RPC function
     const result = await supabase.rpc('sqlwrite', { query: sql });
     
     return result;
   } catch (error) {
     console.warn('SQL write operation failed:', error);
     
-    // If the RPC function doesn't exist, try a direct approach with REST API
-    // This is for demonstration and might not work with default permissions
-    try {
-      // For CREATE TABLE operations, we can try to use the REST API
-      // Note: This would require the appropriate permissions set up in Supabase
-      if (sql.toUpperCase().includes('CREATE TABLE')) {
-        const tableName = extractTableName(sql);
-        if (tableName) {
-          // This is just a placeholder - Supabase REST API doesn't directly support CREATE TABLE
-          // In a real implementation, you'd need to create the table via the Supabase dashboard
-          // or implement a custom server-side function
-          return {
-            data: { message: `Table creation attempted: ${tableName}` },
-            error: {
-              message: 'Create table operations require special permissions. Please create this table through the Supabase dashboard or check your RPC function setup.',
-              details: 'The sqlwrite RPC function is not available or you lack permissions.'
-            }
-          };
-        }
-      }
-    } catch (secondaryError) {
-      console.error('Secondary approach also failed:', secondaryError);
-    }
-    
+    // If the RPC function doesn't exist, provide a helpful error message
     return {
       data: null,
       error: {
-        message: 'SQL write operation failed. The sqlwrite RPC function may not be available or you lack the required permissions.',
-        details: error
+        message: `SQL write operation failed. The sqlwrite RPC function may not be available or you may lack the required permissions. Operation type: ${operationType}`,
+        details: error,
+        help: useServiceRole ? 
+          "This operation requires a service role key. Please make sure SUPABASE_SERVICE_KEY is properly configured in your .env file." :
+          "This operation might require elevated permissions. Consider setting the appropriate ALLOW_*_OPERATIONS flag to false in your .env file to use the service role key."
       }
     };
   }
@@ -156,6 +162,48 @@ export async function getTableSchema(tableName: string): Promise<{ schema: any; 
     schema: result.data,
     error: null
   };
+}
+
+/**
+ * Executes an INSERT operation using Supabase
+ * Provides a safer, structured way to insert data compared to raw SQL
+ */
+export async function executeInsert(
+  table: string, 
+  values: Record<string, any>, 
+  returning: string = '*'
+): Promise<{ data: any; error: any }> {
+  // Determine if we should use the service role key based on configuration
+  const useServiceRole = shouldUseServiceKey('INSERT');
+  
+  // Get the appropriate client
+  const supabase = useServiceRole 
+    ? getSupabaseServiceClient() 
+    : getSupabaseClient();
+  
+  try {
+    // Using Supabase's built-in insert method which is safer than raw SQL
+    const { data, error } = await supabase
+      .from(table)
+      .insert(values)
+      .select(returning);
+    
+    if (error) {
+      console.warn('Insert operation failed:', error);
+      return { data: null, error };
+    }
+    
+    return { data, error: null };
+  } catch (error) {
+    console.error('Insert operation exception:', error);
+    return {
+      data: null,
+      error: {
+        message: `Failed to insert into ${table}`,
+        details: error
+      }
+    };
+  }
 }
 
 // Export a singleton instance of the Supabase client
