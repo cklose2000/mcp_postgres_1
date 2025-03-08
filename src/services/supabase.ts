@@ -315,5 +315,113 @@ export async function executeDelete(
   }
 }
 
+/**
+ * Executes a set of operations within a transaction
+ * All operations will either succeed together or fail together
+ */
+export async function executeTransaction(
+  operations: Array<{
+    type: 'insert' | 'update' | 'delete';
+    table: string;
+    values?: Record<string, any>;
+    filter?: Record<string, any>;
+    returning?: string;
+  }>
+): Promise<{ 
+  success: boolean;
+  results: Array<{
+    success: boolean;
+    operation: any;
+    data?: any;
+    error?: any;
+  }>;
+  error?: any;
+}> {
+  // Determine if we should use the service role key based on the operations
+  // If any operation requires service role, use it for the entire transaction
+  const hasInsert = operations.some(op => op.type === 'insert');
+  const hasUpdate = operations.some(op => op.type === 'update');
+  const hasDelete = operations.some(op => op.type === 'delete');
+  
+  let useServiceRole = false;
+  if (hasInsert && shouldUseServiceKey('INSERT')) useServiceRole = true;
+  if (hasUpdate && shouldUseServiceKey('UPDATE')) useServiceRole = true;
+  if (hasDelete && shouldUseServiceKey('DELETE')) useServiceRole = true;
+  
+  // Get the appropriate client
+  const supabase = useServiceRole 
+    ? getSupabaseServiceClient() 
+    : getSupabaseClient();
+  
+  try {
+    const results: Array<{
+      success: boolean;
+      operation: any;
+      data?: any;
+      error?: any;
+    }> = [];
+    
+    // Begin a transaction
+    console.log("Starting transaction for batch operations");
+    
+    // Execute an RPC function that handles the transaction on the server
+    const { data, error } = await supabase.rpc('execute_transaction', {
+      operations_json: JSON.stringify(operations)
+    });
+    
+    if (error) {
+      console.error("Transaction failed:", error);
+      return {
+        success: false,
+        results: [],
+        error: {
+          message: "Transaction failed",
+          details: error
+        }
+      };
+    }
+    
+    // If the RPC function isn't available, tell the user how to set it up
+    if (!data || !Array.isArray(data)) {
+      return {
+        success: false,
+        results: [],
+        error: {
+          message: "Transaction failed - execute_transaction RPC function not available",
+          details: "You need to create the 'execute_transaction' function in your Supabase project. See documentation for details."
+        }
+      };
+    }
+    
+    // Process the results
+    for (let i = 0; i < operations.length; i++) {
+      const operation = operations[i];
+      const result = data[i];
+      
+      results.push({
+        success: !result.error,
+        operation,
+        data: result.data || null,
+        error: result.error || null
+      });
+    }
+    
+    return {
+      success: true,
+      results
+    };
+  } catch (error) {
+    console.error("Transaction exception:", error);
+    return {
+      success: false,
+      results: [],
+      error: {
+        message: "Transaction failed due to an unexpected error",
+        details: error
+      }
+    };
+  }
+}
+
 // Export a singleton instance of the Supabase client
 export const supabase = getSupabaseClient(); 

@@ -247,6 +247,10 @@ async function handleListTools() {
                 },
                 required: ["type", "table"]
               }
+            },
+            useTransaction: {
+              type: "boolean",
+              description: "Whether to execute all operations in a transaction (default: true)"
             }
           },
           required: ["operations"]
@@ -548,115 +552,205 @@ async function handleCallTool(request: any) {
     }
   } else if (request.params.name === "batchOperations") {
     try {
-      const { operations } = request.params.arguments;
+      const { operations, useTransaction = true } = request.params.arguments;
       
       // Validate input
       if (!operations || !Array.isArray(operations) || operations.length === 0) {
         throw new Error('Operations array is required and must contain at least one operation');
       }
       
-      const results = [];
-      const errors = [];
+      // Validate and sanitize each operation
+      const sanitizedOperations = [];
+      const validationErrors = [];
       
-      // Process each operation
       for (let i = 0; i < operations.length; i++) {
         const operation = operations[i];
         const { type, table, values, filter, returning = '*' } = operation;
         
         // Validate operation
         if (!type) {
-          errors.push({ index: i, error: 'Operation type is required' });
+          validationErrors.push({ index: i, error: 'Operation type is required' });
           continue;
         }
         
         if (!table) {
-          errors.push({ index: i, error: 'Table name is required' });
+          validationErrors.push({ index: i, error: 'Table name is required' });
           continue;
         }
         
         // Sanitize table name
         const sanitizedTable = table.replace(/[^a-zA-Z0-9_]/g, '');
         if (sanitizedTable !== table) {
-          errors.push({ index: i, error: 'Invalid table name. Table names can only contain alphanumeric characters and underscores.' });
+          validationErrors.push({ index: i, error: 'Invalid table name. Table names can only contain alphanumeric characters and underscores.' });
           continue;
         }
         
-        try {
-          let result;
-          
-          // Execute the appropriate operation type
-          switch (type.toLowerCase()) {
-            case 'insert':
-              if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
-                errors.push({ index: i, error: 'Values object is required for insert operations' });
-                continue;
-              }
-              
-              result = await supabaseService.executeInsert(sanitizedTable, values, returning);
-              break;
-              
-            case 'update':
-              if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
-                errors.push({ index: i, error: 'Values object is required for update operations' });
-                continue;
-              }
-              
-              if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
-                errors.push({ index: i, error: 'Filter object is required for update operations' });
-                continue;
-              }
-              
-              result = await supabaseService.executeUpdate(sanitizedTable, values, filter, returning);
-              break;
-              
-            case 'delete':
-              if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
-                errors.push({ index: i, error: 'Filter object is required for delete operations' });
-                continue;
-              }
-              
-              result = await supabaseService.executeDelete(sanitizedTable, filter, returning);
-              break;
-              
-            default:
-              errors.push({ index: i, error: `Unknown operation type: ${type}` });
+        // Type-specific validation
+        switch (type.toLowerCase()) {
+          case 'insert':
+            if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
+              validationErrors.push({ index: i, error: 'Values object is required for insert operations' });
               continue;
-          }
-          
-          // Add the result to the results array
-          results.push({
-            index: i,
-            type,
-            table,
-            success: !result.error,
-            data: result.data,
-            error: result.error
-          });
-          
-        } catch (error: any) {
-          // Add the error to the errors array
-          errors.push({
-            index: i,
-            type,
-            table,
-            error: error.message || String(error)
-          });
+            }
+            break;
+            
+          case 'update':
+            if (!values || typeof values !== 'object' || Object.keys(values).length === 0) {
+              validationErrors.push({ index: i, error: 'Values object is required for update operations' });
+              continue;
+            }
+            
+            if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
+              validationErrors.push({ index: i, error: 'Filter object is required for update operations' });
+              continue;
+            }
+            break;
+            
+          case 'delete':
+            if (!filter || typeof filter !== 'object' || Object.keys(filter).length === 0) {
+              validationErrors.push({ index: i, error: 'Filter object is required for delete operations' });
+              continue;
+            }
+            break;
+            
+          default:
+            validationErrors.push({ index: i, error: `Unknown operation type: ${type}` });
+            continue;
         }
+        
+        // Add sanitized operation to the list
+        sanitizedOperations.push({
+          type: type.toLowerCase(),
+          table: sanitizedTable,
+          values,
+          filter,
+          returning
+        });
       }
       
-      // Return the results of all operations
-      return {
-        content: [{ 
-          type: "text", 
-          text: JSON.stringify({
-            success: errors.length === 0,
-            message: `Processed ${operations.length} operations with ${errors.length} errors`,
-            results,
-            errors
-          }, null, 2) 
-        }],
-        isError: errors.length > 0,
-      };
+      // If there are validation errors, return them
+      if (validationErrors.length > 0) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({
+              success: false,
+              message: `Validation failed for ${validationErrors.length} operations`,
+              errors: validationErrors
+            }, null, 2) 
+          }],
+          isError: true,
+        };
+      }
+      
+      let result;
+      
+      // Use transaction if requested (default is true)
+      if (useTransaction) {
+        // Execute all operations in a transaction
+        result = await supabaseService.executeTransaction(sanitizedOperations);
+        
+        // Return the transaction results
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({
+              success: result.success,
+              message: result.success 
+                ? `Successfully executed ${sanitizedOperations.length} operations in a transaction` 
+                : `Transaction failed: ${result.error?.message || 'Unknown error'}`,
+              results: result.results,
+              error: result.error
+            }, null, 2) 
+          }],
+          isError: !result.success,
+        };
+      } else {
+        // Execute operations sequentially without a transaction (old behavior)
+        const results = [];
+        const errors = [];
+        
+        // Process each operation
+        for (let i = 0; i < sanitizedOperations.length; i++) {
+          const operation = sanitizedOperations[i];
+          const { type, table, values, filter, returning } = operation;
+          
+          try {
+            let operationResult;
+            
+            // Execute the appropriate operation type
+            switch (type) {
+              case 'insert':
+                operationResult = await supabaseService.executeInsert(table, values!, returning);
+                break;
+                
+              case 'update':
+                operationResult = await supabaseService.executeUpdate(table, values!, filter!, returning);
+                break;
+                
+              case 'delete':
+                operationResult = await supabaseService.executeDelete(table, filter!, returning);
+                break;
+                
+              default:
+                // This shouldn't happen because we validate earlier, but just in case
+                operationResult = { 
+                  data: null, 
+                  error: { message: `Unknown operation type: ${type}` } 
+                };
+                break;
+            }
+            
+            // Add the result to the results array
+            results.push({
+              success: !operationResult.error,
+              operation,
+              data: operationResult.data,
+              error: operationResult.error
+            });
+            
+            // If this operation failed, add it to the errors array
+            if (operationResult.error) {
+              errors.push({
+                index: i,
+                type,
+                table,
+                error: operationResult.error
+              });
+            }
+            
+          } catch (error: any) {
+            // Add the error to the errors array
+            errors.push({
+              index: i,
+              type,
+              table,
+              error: error.message || String(error)
+            });
+            
+            // Add the failed operation to the results array
+            results.push({
+              success: false,
+              operation,
+              error: error.message || String(error)
+            });
+          }
+        }
+        
+        // Return the results of all operations
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({
+              success: errors.length === 0,
+              message: `Processed ${sanitizedOperations.length} operations with ${errors.length} errors`,
+              results,
+              errors: errors.length > 0 ? errors : undefined
+            }, null, 2) 
+          }],
+          isError: errors.length > 0,
+        };
+      }
     } catch (error: any) {
       return {
         content: [{ 
@@ -672,4 +766,4 @@ async function handleCallTool(request: any) {
   }
   
   throw new Error(`Unknown tool: ${request.params.name}`);
-} 
+}
