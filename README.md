@@ -1,5 +1,7 @@
 # PostgreSQL MCP Server for Cursor IDE
 
+> **Branch Purpose**: This `SupabaseMCP1` branch is an extension of the original project that aims to modify the PostgreSQL MCP server to enable full CRUD (Create, Read, Update, Delete) operations via the Model Context Protocol. While the main branch provides read-only access to PostgreSQL databases, this branch will explore implementing write capabilities safely and efficiently.
+
 A Model Context Protocol (MCP) server that connects to Supabase PostgreSQL databases and integrates with Cursor IDE.
 
 ## Features
