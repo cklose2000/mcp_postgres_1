@@ -23,6 +23,9 @@ postgres-mcp-server/
 ├── config/                  # Configuration files
 │   └── .env.sample          # Sample environment variables
 ├── dist/                    # Build output (generated)
+├── tsconfig.json            # TypeScript configuration
+├── build.tsconfig.json      # TypeScript build configuration (excludes tests)
+├── test.tsconfig.json       # TypeScript test configuration (includes tests)
 ├── .env                     # Environment variables (not committed)
 └── README.md                # Documentation
 ```
@@ -31,7 +34,7 @@ postgres-mcp-server/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/postgres-mcp-server.git
+   git clone https://github.com/cklose2000/mcp_postgres_1.git
    cd postgres-mcp-server
    ```
 
@@ -77,7 +80,7 @@ postgres-mcp-server/
    - **Type**: `command`
    - **Command**: 
    ```
-   node /absolute/path/to/postgres-mcp-server/dist/src/index.js
+   node /absolute/path/to/postgres-mcp-server/dist/index.js
    ```
 4. Click "Add" to save
 
@@ -90,6 +93,16 @@ npm run dev
 ```
 
 This will start the server with auto-reload on file changes.
+
+### TypeScript Configuration
+
+The project uses three TypeScript configuration files:
+
+- **tsconfig.json**: The base TypeScript configuration
+- **build.tsconfig.json**: Build-specific configuration that excludes test files, used by `npm run build` and `npm run dev`
+- **test.tsconfig.json**: Test-specific configuration that includes both source and test files, used by `npm test`
+
+This separation ensures that the build process is clean and focuses only on the application code, while tests can be run separately when needed.
 
 ### Environment Variables
 
