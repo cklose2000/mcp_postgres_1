@@ -128,6 +128,19 @@ async function handleListTools() {
           },
         },
       },
+      {
+        name: "createTable",
+        description: "Create a new table in the Supabase database",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sql: { 
+              type: "string",
+              description: "SQL CREATE TABLE statement"
+            },
+          },
+        },
+      },
     ],
   };
 }
@@ -136,9 +149,9 @@ async function handleListTools() {
  * Handler for executing tools (SQL queries)
  */
 async function handleCallTool(request: any) {
+  const sql = request.params.arguments?.sql as string;
+  
   if (request.params.name === "query") {
-    const sql = request.params.arguments?.sql as string;
-    
     try {
       const { data, error } = await supabaseService.executeSqlQuery(sql);
       
@@ -157,6 +170,51 @@ async function handleCallTool(request: any) {
       
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        isError: false,
+      };
+    } catch (error: any) {
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({ 
+            error: true, 
+            message: error.message || String(error)
+          }, null, 2) 
+        }],
+        isError: true,
+      };
+    }
+  } else if (request.params.name === "createTable") {
+    try {
+      // Validate that the SQL statement is a CREATE TABLE statement
+      if (!sql.toUpperCase().includes('CREATE TABLE')) {
+        throw new Error('SQL statement must be a CREATE TABLE statement');
+      }
+      
+      const { data, error } = await supabaseService.executeWriteSqlQuery(sql);
+      
+      if (error) {
+        return {
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              error: true, 
+              message: error.message 
+            }, null, 2) 
+          }],
+          isError: true,
+        };
+      }
+      
+      return {
+        content: [{ 
+          type: "text", 
+          text: JSON.stringify({
+            success: true,
+            message: "Table created successfully",
+            data: data
+          }, null, 2) 
+        }],
         isError: false,
       };
     } catch (error: any) {
